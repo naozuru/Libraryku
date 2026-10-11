@@ -1,0 +1,160 @@
+/* =====================================================================
+   Panel admin perpustakaan (dimuat setelah style.css)
+   ===================================================================== */
+
+/* ---------- Layout ---------- */
+.admin { flex: 1; display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; align-self: start; height: 100vh; display: flex; flex-direction: column; gap: 18px;
+  padding: 18px 14px; background: var(--surface); border-right: 1px solid var(--line);
+}
+.side-brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px; font-weight: 800; line-height: 1.2; letter-spacing: -.01em; }
+.side-brand small { display: block; font-weight: 500; font-size: .75rem; color: var(--muted); letter-spacing: 0; }
+.side-nav, .side-foot { display: grid; gap: 2px; }
+.side-foot { margin-top: auto; border-top: 1px solid var(--line); padding-top: 12px; }
+.side-nav a, .side-foot a {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;
+  font-weight: 600; color: var(--muted);
+}
+.side-nav a:hover, .side-foot a:hover { background: var(--paper); color: var(--ink); }
+.side-nav a[aria-current="page"] { background: var(--primary-soft); color: var(--primary-dark); }
+
+.admin-main { min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 24px;
+  background: rgba(255, 255, 255, .92); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line);
+}
+.topbar h1 { font-size: 1.15rem; font-weight: 800; letter-spacing: -.01em; flex: 1; }
+.menu-btn { display: none; }
+.user-chip { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.user-chip .avatar { width: 34px; height: 34px; border-radius: 10px; font-size: .95rem; }
+.admin-content { padding: 24px; width: 100%; max-width: 1240px; }
+.scrim { display: none; position: fixed; inset: 0; z-index: 39; background: rgba(27, 26, 51, .4); }
+
+@media (max-width: 899px) {
+  .admin { grid-template-columns: 1fr; }
+  .sidebar { position: fixed; z-index: 40; left: 0; top: 0; width: 264px; transform: translateX(-100%); transition: transform .2s ease; }
+  body.nav-open .sidebar { transform: none; box-shadow: var(--shadow); }
+  body.nav-open .scrim { display: block; }
+  .menu-btn { display: grid; }
+  .topbar, .admin-content { padding-left: 16px; padding-right: 16px; }
+  .user-name { display: none; }
+}
+
+/* ---------- Komponen ---------- */
+.btn-danger { background: var(--bad); color: #fff; }
+.btn-danger:hover { background: #912016; }
+.btn-sm { min-height: 36px; padding: 0 14px; font-size: .875rem; }
+.icon-btn {
+  display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--surface); cursor: pointer;
+}
+.icon-btn:hover { background: var(--primary-soft); border-color: var(--primary-line); }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice .link { margin-left: auto; white-space: nowrap; }
+.link { color: var(--primary-dark); font-weight: 700; }
+.link:hover { text-decoration: underline; }
+
+.admin-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.admin-toolbar .grow { flex: 1; min-width: 220px; }
+.input-icon { position: relative; }
+.input-icon iconify-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.input-icon .input { padding-left: 40px; }
+select.input { width: auto; min-width: 160px; padding-right: 32px; }
+textarea.input { height: auto; min-height: 96px; padding: 10px 14px; resize: vertical; }
+.hint { color: var(--muted); font-size: .8rem; }
+
+/* ---------- Statistik & daftar (dashboard) ---------- */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.stat { display: flex; align-items: center; gap: 14px; padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.stat-ic { display: grid; place-items: center; width: 46px; height: 46px; flex: none; border-radius: 12px; background: var(--primary-soft); }
+.stat b { display: block; font-size: 1.75rem; line-height: 1.1; font-weight: 800; letter-spacing: -.02em; }
+.stat span { color: var(--muted); font-size: .85rem; }
+.stat.alert b { color: var(--bad); }
+.cols { display: grid; gap: 16px; margin-top: 16px; }
+@media (min-width: 1000px) { .cols { grid-template-columns: 1fr 1fr; } }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.panel-head h2 { font-size: 1.02rem; }
+.row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row .grow { flex: 1; min-width: 0; }
+.row b { display: block; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row small { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.empty-note { padding: 28px 8px; text-align: center; color: var(--muted); }
+
+/* ---------- Tabel ---------- */
+.table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.table-scroll { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; min-width: 640px; }
+.tbl th {
+  text-align: left; font-size: .8rem; font-weight: 700; color: var(--muted); padding: 12px 16px;
+  background: #FAFAFD; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.tbl td { padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl tbody tr:hover { background: #FAFAFF; }
+.tbl .num { text-align: right; }
+.cell-book { display: flex; align-items: center; gap: 12px; min-width: 240px; }
+.cell-book .cover { width: 36px; flex: none; }
+.cell-book b { display: block; font-weight: 700; line-height: 1.3; }
+.cell-book small { color: var(--muted); }
+.actions { display: flex; gap: 6px; justify-content: flex-end; }
+.table-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem;
+}
+.pager { display: flex; align-items: center; gap: 8px; }
+
+/* ---------- Modal ---------- */
+dialog.modal {
+  border: 0; border-radius: 16px; padding: 0; width: min(640px, calc(100% - 24px)); max-height: calc(100vh - 32px);
+  box-shadow: 0 24px 60px -20px rgba(27, 26, 51, .45); color: var(--ink); overflow: hidden;
+}
+dialog.modal::backdrop { background: rgba(27, 26, 51, .45); }
+dialog.modal.narrow { width: min(440px, calc(100% - 24px)); }
+.modal-form { display: flex; flex-direction: column; max-height: calc(100vh - 32px); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+.modal-head h2 { font-size: 1.1rem; }
+.modal-body { padding: 20px 22px; overflow-y: auto; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--line); background: #FAFAFD; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.form-grid .full { grid-column: 1 / -1; }
+@media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
+.form-error { margin-top: 14px; padding: 10px 12px; border-radius: 10px; background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+
+/* ---------- Login ---------- */
+.login { flex: 1; display: grid; min-height: 100vh; }
+@media (min-width: 900px) { .login { grid-template-columns: 1.05fr 1fr; } }
+.login-side { display: none; background: var(--primary); color: #fff; padding: 56px; align-content: end; gap: 16px; }
+@media (min-width: 900px) { .login-side { display: grid; } }
+.login-side h2 { font-size: 2.4rem; line-height: 1.1; letter-spacing: -.03em; font-weight: 800; max-width: 14ch; }
+.login-side p { color: #D5D9FB; max-width: 40ch; }
+.login-main { display: grid; place-items: center; padding: 32px 16px; }
+.login-card { width: min(400px, 100%); display: grid; gap: 20px; }
+.login-card h1 { font-size: 1.7rem; letter-spacing: -.02em; font-weight: 800; }
+.login-card .sub { color: var(--muted); margin-top: 4px; }
+.login-card form { display: grid; gap: 16px; }
+.pw-wrap { position: relative; }
+.pw-wrap .input { padding-right: 52px; }
+.pw-wrap .icon-btn { position: absolute; right: 4px; top: 4px; border: 0; background: transparent; }
+.login-card .brand-line { display: flex; align-items: center; gap: 12px; font-weight: 800; }
+
+/* ---------- Tambahan tahap 4: anggota, peminjaman, pengaturan ---------- */
+.icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+.icon-btn:disabled:hover { background: var(--surface); border-color: var(--line); }
+.stack { display: grid; gap: 16px; max-width: 760px; }
+.panel .section-title { font-size: 1.05rem; margin-bottom: 4px; }
+.panel .sub { color: var(--muted); margin-bottom: 18px; }
+.form-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 4px; background: #EDEDF6; border-radius: 12px; }
+.seg button { border: 0; background: transparent; padding: 8px 14px; border-radius: 9px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(27, 26, 51, .12); }
+.cell-person { min-width: 150px; }
+.cell-person b { display: block; font-weight: 700; line-height: 1.3; }
+.cell-person small { color: var(--muted); }
+.nowrap { white-space: nowrap; }
+.stack-sm { display: grid; gap: 4px; justify-items: start; }
+.stack-sm small { color: var(--muted); }
+.preview-note { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--primary-soft); color: var(--primary-dark); font-weight: 600; }
+.err-list { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: .85rem; }

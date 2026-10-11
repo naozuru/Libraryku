@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard - Admin Perpustakaan</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="../assets/css/admin.css">
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js" defer></script>
+</head>
+<body>
+  <div class="admin">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="admin-main">
+      <header class="topbar" id="topbar"></header>
+      <main class="admin-content">
+        <div id="banner"></div>
+        <section class="stats" id="stats" aria-label="Ringkasan"></section>
+        <div class="cols">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Siswa yang terlambat</h2>
+              <a class="link" href="loans.html?filter=terlambat">Lihat semua</a>
+            </div>
+            <div id="lateList"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Peminjaman terbaru</h2>
+              <a class="link" href="loans.html">Lihat semua</a>
+            </div>
+            <div id="recentList"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+
+  <script src="../assets/js/config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/ui.js"></script>
+  <script src="../assets/js/admin.js"></script>
+  <script>
+    (function () {
+      if (!Admin.guard()) return;
+      Admin.mountShell('dashboard', 'Dashboard');
+      var $ = function (id) { return document.getElementById(id); };
+
+      // Pengingat jika masih memakai password bawaan
+      try {
+        if (sessionStorage.getItem('lib_default_pw') === '1') {
+          $('banner').innerHTML = '<div class="notice warn">' + UI.icon('shield-alert', 22) +
+            '<span>Kamu masih memakai password bawaan. Ganti sekarang agar akun admin aman.</span>' +
+            '<a class="link" href="settings.html">Ganti password</a></div>';
+        }
+      } catch (e) { /* abaikan */ }
+
+      function stat(ic, value, label, alert) {
+        return '<div class="stat' + (alert ? ' alert' : '') + '"><span class="stat-ic">' + UI.icon(ic, 24) + '</span>' +
+          '<div><b>' + value + '</b><span>' + label + '</span></div></div>';
+      }
+
+      function row(l, badge) {
+        return '<div class="row"><div class="grow"><b>' + UI.esc(l.nama || '(anggota dihapus)') + '</b>' +
+          '<small>' + UI.esc(l.judul) + (l.kelas ? ', ' + UI.esc(l.kelas) : '') + '</small></div>' + badge + '</div>';
+      }
+
+      function skeleton() {
+        $('stats').innerHTML = new Array(6 + 1).join('<div class="skeleton" style="height:84px;border-radius:14px"></div>');
+        $('lateList').innerHTML = $('recentList').innerHTML =
+          '<div class="skeleton" style="height:56px;margin-bottom:8px"></div><div class="skeleton" style="height:56px"></div>';
+      }
+
+      async function load() {
+        skeleton();
+        try {
+          var d = await API.post('dashboard');
+          $('stats').innerHTML =
+            stat('book-marked', d.sedang_dipinjam, 'Sedang dipinjam') +
+            stat('calendar-clock', d.jatuh_tempo_hari_ini, 'Jatuh tempo hari ini') +
+            stat('hourglass', d.hampir_jatuh_tempo, 'Hampir jatuh tempo') +
+            stat('triangle-alert', d.terlambat, 'Terlambat', d.terlambat > 0) +
+            stat('library', d.total_judul, 'Judul buku (' + d.total_eksemplar + ' eksemplar)') +
+            stat('users', d.total_anggota, 'Anggota terdaftar');
+
+          $('lateList').innerHTML = d.terlambat_teratas.length
+            ? d.terlambat_teratas.map(function (l) { return row(l, UI.loanBadge(l)); }).join('')
+            : '<p class="empty-note">Tidak ada keterlambatan. Semua pinjaman masih dalam batas waktu.</p>';
+
+          $('recentList').innerHTML = d.peminjaman_terbaru.length
+            ? d.peminjaman_terbaru.map(function (l) { return row(l, UI.loanBadge(l)); }).join('')
+            : '<p class="empty-note">Belum ada peminjaman tercatat.</p>';
+        } catch (e) {
+          $('stats').innerHTML = UI.state({
+            icon: 'wifi-off', title: 'Dashboard belum bisa dimuat', text: e.message,
+            action: '<button class="btn btn-soft" id="retry" type="button">Coba lagi</button>'
+          });
+          $('lateList').innerHTML = $('recentList').innerHTML = '';
+          $('retry').onclick = load;
+        }
+      }
+      load();
+    })();
+  </script>
+</body>
+</html>

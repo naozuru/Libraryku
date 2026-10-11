@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Peminjaman - Admin Perpustakaan</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="../assets/css/admin.css">
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js" defer></script>
+</head>
+<body>
+  <div class="admin">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="admin-main">
+      <header class="topbar" id="topbar"></header>
+      <main class="admin-content">
+        <div class="admin-toolbar">
+          <div class="seg" id="seg" role="group" aria-label="Filter peminjaman">
+            <button type="button" data-f="aktif" aria-pressed="true">Sedang dipinjam</button>
+            <button type="button" data-f="terlambat" aria-pressed="false">Terlambat</button>
+            <button type="button" data-f="selesai" aria-pressed="false">Sudah kembali</button>
+            <button type="button" data-f="semua" aria-pressed="false">Semua</button>
+          </div>
+          <div class="input-icon grow">
+            <iconify-icon icon="lucide:search" width="18" height="18" aria-hidden="true"></iconify-icon>
+            <input class="input" id="q" type="search" placeholder="Cari nama, NIS, kelas, atau judul" aria-label="Cari peminjaman">
+          </div>
+          <button class="btn btn-outline" id="copyBtn" type="button" hidden>
+            <iconify-icon icon="lucide:copy" width="18" height="18" aria-hidden="true"></iconify-icon>Salin daftar
+          </button>
+          <button class="btn btn-primary" id="addBtn" type="button">Catat peminjaman</button>
+        </div>
+
+        <div class="table-card">
+          <div class="table-scroll">
+            <table class="tbl" style="min-width:820px">
+              <thead>
+                <tr><th>Siswa</th><th>Buku</th><th>Dipinjam</th><th>Jatuh tempo</th><th>Status</th><th class="num">Aksi</th></tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+          <div id="empty"></div>
+          <div class="table-foot" id="foot">
+            <span id="info"></span>
+            <div class="pager">
+              <button class="icon-btn" id="prev" type="button" aria-label="Halaman sebelumnya"><iconify-icon icon="lucide:chevron-left" width="18" height="18" aria-hidden="true"></iconify-icon></button>
+              <span id="pageLabel"></span>
+              <button class="icon-btn" id="next" type="button" aria-label="Halaman berikutnya"><iconify-icon icon="lucide:chevron-right" width="18" height="18" aria-hidden="true"></iconify-icon></button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+
+  <script src="../assets/js/config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/ui.js"></script>
+  <script src="../assets/js/admin.js"></script>
+  <script>
+    (function () {
+      if (!Admin.guard()) return;
+
+      var $ = function (id) { return document.getElementById(id); };
+      var FILTERS = ['aktif', 'terlambat', 'selesai', 'semua'];
+      var PER = 25;
+      var filter = new URLSearchParams(location.search).get('filter');
+      if (FILTERS.indexOf(filter) < 0) filter = 'aktif';
+      var loans = [], page = 1, q = '', loading = true, reqId = 0;
+      var settings = { durasi_pinjam_default: 7, maks_perpanjangan: 1, durasi_perpanjangan: 7, maks_buku_per_siswa: 3 };
+      var refs = null;
+
+      Admin.mountShell(filter === 'terlambat' ? 'late' : 'loans', 'Peminjaman');
+
+      // Sorot menu sidebar sesuai tab yang aktif
+      function syncNav() {
+        Array.prototype.forEach.call(document.querySelectorAll('#sidebar .side-nav a'), function (a) {
+          var href = a.getAttribute('href');
+          var on = filter === 'terlambat' ? href === 'loans.html?filter=terlambat' : href === 'loans.html';
+          if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+        });
+      }
+
+      function markSeg() {
+        Array.prototype.forEach.call($('seg').querySelectorAll('button'), function (b) {
+          b.setAttribute('aria-pressed', String(b.getAttribute('data-f') === filter));
+        });
+        $('copyBtn').hidden = filter !== 'terlambat';
+        syncNav();
+      }
+
+      function visible() {
+        var s = q.toLowerCase();
+        return loans.filter(function (l) {
+          return !s || [l.nama, l.nis, l.kelas, l.judul].join(' ').toLowerCase().indexOf(s) > -1;
+        });
+      }
+
+      function statusCell(l) {
+        if (l.status === 'Dipinjam') {
+          return '<div class="stack-sm">' + UI.loanBadge(l) +
+            (l.denda > 0 ? '<small>Denda ' + UI.rupiah(l.denda) + '</small>' : '') + '</div>';
+        }
+        return '<div class="stack-sm"><span class="badge muted">Dikembalikan</span><small>' + UI.fmtDate(l.tgl_kembali) +
+          (l.hari_terlambat > 0 ? ', telat ' + l.hari_terlambat + ' hari' : '') + '</small></div>';
+      }
+
+      function actionCell(l) {
+        if (l.status !== 'Dipinjam') return '<div class="actions"><span class="hint">-</span></div>';
+        var maxed = l.perpanjangan >= settings.maks_perpanjangan;
+        return '<div class="actions">' +
+          '<button class="btn btn-soft btn-sm" type="button" data-act="ret" data-id="' + UI.esc(l.id) + '">Kembalikan</button>' +
+          '<button class="icon-btn" type="button" data-act="ext" data-id="' + UI.esc(l.id) + '"' + (maxed ? ' disabled' : '') +
+            ' title="' + (maxed ? 'Batas perpanjangan sudah tercapai' : 'Perpanjang') + '" aria-label="Perpanjang ' + UI.esc(l.judul) + '">' +
+            UI.icon('calendar-plus', 18) + '</button></div>';
+      }
+
+      function emptyState() {
+        var map = {
+          aktif: ['book-open', 'Tidak ada buku yang sedang dipinjam', 'Peminjaman baru akan muncul di sini setelah dicatat.'],
+          terlambat: ['circle-check', 'Tidak ada keterlambatan', 'Semua buku masih dalam batas waktu pinjam.'],
+          selesai: ['history', 'Belum ada riwayat pengembalian', 'Buku yang sudah dikembalikan akan tercatat di sini.'],
+          semua: ['arrow-left-right', 'Belum ada peminjaman', 'Mulai dengan mencatat peminjaman pertama.']
+        };
+        var m = map[filter];
+        return UI.state({ icon: m[0], title: m[1], text: m[2] });
+      }
+
+      function render() {
+        var list = visible();
+        var pages = Math.max(1, Math.ceil(list.length / PER));
+        if (page > pages) page = pages;
+        $('rows').innerHTML = list.slice((page - 1) * PER, page * PER).map(function (l) {
+          return '<tr><td><div class="cell-person"><b>' + UI.esc(l.nama || '(anggota dihapus)') + '</b><small>' +
+            UI.esc([l.nis, l.kelas].filter(Boolean).join(', ')) + '</small></div></td>' +
+            '<td><b style="font-weight:600">' + UI.esc(l.judul) + '</b></td>' +
+            '<td class="nowrap">' + UI.fmtDate(l.tgl_pinjam) + '</td>' +
+            '<td class="nowrap">' + UI.fmtDate(l.tgl_jatuh_tempo) + '</td>' +
+            '<td>' + statusCell(l) + '</td><td>' + actionCell(l) + '</td></tr>';
+        }).join('');
+
+        if (loading) {
+          $('empty').innerHTML = '<div class="skeleton" style="height:56px;margin:12px"></div><div class="skeleton" style="height:56px;margin:12px"></div>';
+        } else if (!list.length) {
+          $('empty').innerHTML = loans.length
+            ? UI.state({ icon: 'search-x', title: 'Data tidak ditemukan', text: 'Coba kata kunci lain.' })
+            : emptyState();
+        } else {
+          $('empty').innerHTML = '';
+        }
+        $('info').textContent = list.length ? list.length + ' data' : '';
+        $('pageLabel').textContent = 'Halaman ' + page + ' dari ' + pages;
+        $('prev').disabled = page <= 1;
+        $('next').disabled = page >= pages;
+        $('foot').hidden = !list.length;
+      }
+
+      async function load() {
+        var id = ++reqId;
+        loading = true; loans = []; render();
+        try {
+          var data = await API.post('listLoans', { filter: filter });
+          if (id !== reqId) return;
+          loans = data; loading = false; render();
+        } catch (e) {
+          if (id !== reqId) return;
+          loading = false;
+          $('rows').innerHTML = ''; $('foot').hidden = true;
+          $('empty').innerHTML = UI.state({
+            icon: 'wifi-off', title: 'Data peminjaman belum bisa dimuat', text: e.message,
+            action: '<button class="btn btn-soft" id="retry" type="button">Coba lagi</button>'
+          });
+          $('retry').onclick = load;
+        }
+      }
+
+      // ----- Catat peminjaman -----
+      async function loadAvailableBooks() {
+        var all = [], p = 1, total = Infinity;
+        while (all.length < total) {
+          var d = await API.get('listBooks', { tersedia: true, page: p, pageSize: 100 });
+          total = d.total; all = all.concat(d.items); p++;
+          if (!d.items.length) break;
+        }
+        return all;
+      }
+
+      async function ensureRefs() {
+        if (refs) return refs;
+        var res = await Promise.all([API.post('listMembers', {}), loadAvailableBooks()]);
+        refs = { members: res[0], books: res[1] };
+        return refs;
+      }
+
+      function uniqueLabels(items, labelFn) {
+        var map = {}, html = '';
+        items.forEach(function (it) {
+          var label = labelFn(it);
+          if (map[label]) label += ' #' + String(it.id).slice(-4);
+          map[label] = it.id;
+          html += '<option value="' + UI.esc(label) + '">';
+        });
+        return { map: map, html: html };
+      }
+
+      async function openLoanForm() {
+        var btn = $('addBtn');
+        btn.disabled = true; btn.textContent = 'Memuat data...';
+        var r;
+        try { r = await ensureRefs(); }
+        catch (e) { UI.toast(e.message, 'error'); return; }
+        finally { btn.disabled = false; btn.textContent = 'Catat peminjaman'; }
+
+        if (!r.members.length) { UI.toast('Belum ada anggota. Tambahkan anggota terlebih dulu.', 'error'); return; }
+        if (!r.books.length) { UI.toast('Semua buku sedang dipinjam atau belum ada buku.', 'error'); return; }
+
+        var mem = uniqueLabels(r.members, function (m) { return m.nis + ' - ' + m.nama + (m.kelas ? ' (' + m.kelas + ')' : ''); });
+        var bk = uniqueLabels(r.books, function (b) { return b.judul + (b.penulis ? ' - ' + b.penulis : '') + ' (sisa ' + b.stok_tersedia + ')'; });
+
+        var ok = await Admin.modal({
+          title: 'Catat peminjaman', submit: 'Simpan peminjaman',
+          html: '<div class="form-grid">' +
+            '<div class="field full"><label for="l_member">Siswa *</label>' +
+              '<input class="input" id="l_member" name="member" list="memList" placeholder="Ketik NIS atau nama, lalu pilih dari daftar" autocomplete="off" required>' +
+              '<datalist id="memList">' + mem.html + '</datalist></div>' +
+            '<div class="field full"><label for="l_book">Buku *</label>' +
+              '<input class="input" id="l_book" name="book" list="bookList" placeholder="Ketik judul, lalu pilih dari daftar" autocomplete="off" required>' +
+              '<datalist id="bookList">' + bk.html + '</datalist></div>' +
+            '<div class="field"><label for="l_durasi">Lama pinjam (hari)</label>' +
+              '<input class="input" id="l_durasi" name="durasi" type="number" min="1" max="90" value="' + settings.durasi_pinjam_default + '" required>' +
+              '<span class="hint">Maksimal ' + settings.maks_buku_per_siswa + ' buku per siswa.</span></div>' +
+          '</div>',
+          onSubmit: async function (d) {
+            var idAnggota = mem.map[d.member], idBuku = bk.map[d.book];
+            if (!idAnggota) throw new Error('Pilih siswa dari daftar yang muncul saat mengetik.');
+            if (!idBuku) throw new Error('Pilih buku dari daftar yang muncul saat mengetik.');
+            var res = await API.post('createLoan', { id_anggota: idAnggota, id_buku: idBuku, durasi: d.durasi });
+            UI.toast('Peminjaman dicatat, jatuh tempo ' + UI.fmtDate(res.tgl_jatuh_tempo), 'success');
+          }
+        });
+        if (ok) { refs = null; load(); }
+      }
+
+      // ----- Kembalikan & perpanjang -----
+      async function doReturn(l) {
+        var extra = l.hari_terlambat > 0
+          ? '<br>Terlambat ' + l.hari_terlambat + ' hari' + (l.denda > 0 ? ', denda ' + UI.rupiah(l.denda) : '') + '.'
+          : '';
+        var ok = await Admin.confirm({
+          title: 'Terima pengembalian?', submit: 'Ya, sudah kembali',
+          text: '<strong>' + UI.esc(l.judul) + '</strong> dari <strong>' + UI.esc(l.nama) + '</strong>.' + extra,
+          action: function () { return API.post('returnLoan', { id: l.id }); }
+        });
+        if (ok) { UI.toast('Buku dikembalikan', 'success'); refs = null; load(); }
+      }
+
+      async function doExtend(l) {
+        var newDue = '';
+        var ok = await Admin.confirm({
+          title: 'Perpanjang peminjaman?', submit: 'Perpanjang',
+          text: '<strong>' + UI.esc(l.judul) + '</strong> milik <strong>' + UI.esc(l.nama) + '</strong> diperpanjang ' +
+            settings.durasi_perpanjangan + ' hari.' + (l.hari_terlambat > 0 ? ' Karena sudah terlambat, hitungan dimulai dari hari ini.' : ''),
+          action: async function () { newDue = (await API.post('extendLoan', { id: l.id })).tgl_jatuh_tempo; }
+        });
+        if (ok) { UI.toast('Jatuh tempo baru: ' + UI.fmtDate(newDue), 'success'); load(); }
+      }
+
+      async function copyLate() {
+        var list = visible();
+        if (!list.length) { UI.toast('Tidak ada data untuk disalin', 'error'); return; }
+        var text = 'Daftar keterlambatan buku perpustakaan:\n' + list.map(function (l, i) {
+          return (i + 1) + '. ' + l.nama + (l.kelas ? ' (' + l.kelas + ')' : '') + ' - ' + l.judul + ' - terlambat ' + l.hari_terlambat + ' hari';
+        }).join('\n');
+        try { await navigator.clipboard.writeText(text); UI.toast('Daftar disalin ke clipboard', 'success'); }
+        catch (e) { UI.toast('Browser tidak mengizinkan menyalin otomatis', 'error'); }
+      }
+
+      // ----- Event -----
+      $('seg').addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-f]');
+        if (!b || b.getAttribute('data-f') === filter) return;
+        filter = b.getAttribute('data-f'); page = 1;
+        history.replaceState(null, '', filter === 'aktif' ? location.pathname : '?filter=' + filter);
+        markSeg(); load();
+      });
+      $('q').addEventListener('input', UI.debounce(function () { q = $('q').value.trim(); page = 1; render(); }, 200));
+      $('addBtn').onclick = openLoanForm;
+      $('copyBtn').onclick = copyLate;
+      $('prev').onclick = function () { page--; render(); };
+      $('next').onclick = function () { page++; render(); };
+      $('rows').addEventListener('click', function (ev) {
+        var btn = ev.target.closest('[data-act]');
+        if (!btn || btn.disabled) return;
+        var l = loans.filter(function (x) { return x.id === btn.getAttribute('data-id'); })[0];
+        if (!l) return;
+        if (btn.getAttribute('data-act') === 'ret') doReturn(l); else doExtend(l);
+      });
+
+      markSeg();
+      API.post('getSettings').then(function (s) { settings = s; render(); }).catch(function () { /* pakai nilai bawaan */ });
+      load();
+    })();
+  </script>
+</body>
+</html>

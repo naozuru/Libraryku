@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anggota - Admin Perpustakaan</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="../assets/css/admin.css">
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js" defer></script>
+</head>
+<body>
+  <div class="admin">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="admin-main">
+      <header class="topbar" id="topbar"></header>
+      <main class="admin-content">
+        <div class="admin-toolbar">
+          <div class="input-icon grow">
+            <iconify-icon icon="lucide:search" width="18" height="18" aria-hidden="true"></iconify-icon>
+            <input class="input" id="q" type="search" placeholder="Cari nama, NIS, atau kelas" aria-label="Cari anggota">
+          </div>
+          <select class="input" id="jen" aria-label="Filter jenjang">
+            <option value="">Semua jenjang</option><option value="JHS">JHS</option><option value="SHS">SHS</option>
+          </select>
+          <button class="btn btn-outline" id="importBtn" type="button">
+            <iconify-icon icon="lucide:upload" width="18" height="18" aria-hidden="true"></iconify-icon>Impor CSV
+          </button>
+          <button class="btn btn-primary" id="addBtn" type="button">Tambah anggota</button>
+        </div>
+
+        <div class="table-card">
+          <div class="table-scroll">
+            <table class="tbl">
+              <thead>
+                <tr><th>Nama</th><th>NIS</th><th>Kelas</th><th>Jenjang</th><th>Pinjaman aktif</th><th class="num">Aksi</th></tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+          <div id="empty"></div>
+          <div class="table-foot" id="foot">
+            <span id="info"></span>
+            <div class="pager">
+              <button class="icon-btn" id="prev" type="button" aria-label="Halaman sebelumnya"><iconify-icon icon="lucide:chevron-left" width="18" height="18" aria-hidden="true"></iconify-icon></button>
+              <span id="pageLabel"></span>
+              <button class="icon-btn" id="next" type="button" aria-label="Halaman berikutnya"><iconify-icon icon="lucide:chevron-right" width="18" height="18" aria-hidden="true"></iconify-icon></button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+
+  <script src="../assets/js/config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/ui.js"></script>
+  <script src="../assets/js/admin.js"></script>
+  <script>
+    (function () {
+      if (!Admin.guard()) return;
+      Admin.mountShell('members', 'Kelola Anggota');
+
+      var $ = function (id) { return document.getElementById(id); };
+      var PER = 25;
+      var members = [], page = 1, q = '', jen = '', loading = true;
+
+      function byName(a, b) { return String(a.nama).localeCompare(String(b.nama)); }
+
+      function filtered() {
+        var s = q.toLowerCase();
+        return members.filter(function (m) {
+          if (jen && m.jenjang !== jen) return false;
+          if (!s) return true;
+          return [m.nama, m.nis, m.kelas].join(' ').toLowerCase().indexOf(s) > -1;
+        });
+      }
+
+      function render() {
+        var list = filtered();
+        var pages = Math.max(1, Math.ceil(list.length / PER));
+        if (page > pages) page = pages;
+        var slice = list.slice((page - 1) * PER, page * PER);
+
+        $('rows').innerHTML = slice.map(function (m) {
+          var n = Number(m.pinjaman_aktif || 0);
+          return '<tr><td><div class="cell-person"><b>' + UI.esc(m.nama) + '</b></div></td>' +
+            '<td>' + UI.esc(m.nis) + '</td>' +
+            '<td>' + (m.kelas ? UI.esc(m.kelas) : '-') + '</td>' +
+            '<td>' + (m.jenjang ? '<span class="badge muted">' + UI.esc(m.jenjang) + '</span>' : '-') + '</td>' +
+            '<td>' + (n ? '<span class="badge">' + n + ' buku</span>' : '-') + '</td>' +
+            '<td><div class="actions">' +
+              '<button class="icon-btn" type="button" data-act="edit" data-id="' + UI.esc(m.id) + '" aria-label="Ubah ' + UI.esc(m.nama) + '">' + UI.icon('pencil', 18) + '</button>' +
+              '<button class="icon-btn" type="button" data-act="del" data-id="' + UI.esc(m.id) + '" aria-label="Hapus ' + UI.esc(m.nama) + '">' + UI.icon('trash-2', 18) + '</button>' +
+            '</div></td></tr>';
+        }).join('');
+
+        if (loading) {
+          $('empty').innerHTML = '<div class="skeleton" style="height:56px;margin:12px"></div><div class="skeleton" style="height:56px;margin:12px"></div>';
+        } else if (!list.length) {
+          $('empty').innerHTML = members.length
+            ? UI.state({ icon: 'search-x', title: 'Anggota tidak ditemukan', text: 'Coba kata kunci atau jenjang lain.' })
+            : UI.state({
+                icon: 'users', title: 'Belum ada anggota',
+                text: 'Tambahkan siswa satu per satu, atau impor sekaligus dari file CSV.',
+                action: '<button class="btn btn-primary" id="emptyImport" type="button">Impor dari CSV</button>'
+              });
+          if ($('emptyImport')) $('emptyImport').onclick = openImport;
+        } else {
+          $('empty').innerHTML = '';
+        }
+        $('info').textContent = list.length ? list.length + ' anggota' : '';
+        $('pageLabel').textContent = 'Halaman ' + page + ' dari ' + pages;
+        $('prev').disabled = page <= 1;
+        $('next').disabled = page >= pages;
+        $('foot').hidden = !list.length;
+      }
+
+      // ----- Form tambah / ubah -----
+      function formHtml(m) {
+        m = m || {};
+        var opt = function (v) { return '<option value="' + v + '"' + (m.jenjang === v ? ' selected' : '') + '>' + v + '</option>'; };
+        return '<div class="form-grid">' +
+          '<div class="field full"><label for="m_nama">Nama lengkap *</label><input class="input" id="m_nama" name="nama" value="' + UI.esc(m.nama || '') + '" required></div>' +
+          '<div class="field"><label for="m_nis">NIS *</label><input class="input" id="m_nis" name="nis" value="' + UI.esc(m.nis || '') + '" required></div>' +
+          '<div class="field"><label for="m_kelas">Kelas</label><input class="input" id="m_kelas" name="kelas" value="' + UI.esc(m.kelas || '') + '" placeholder="Contoh: X-A"></div>' +
+          '<div class="field"><label for="m_jenjang">Jenjang</label><select class="input" id="m_jenjang" name="jenjang" style="width:100%">' +
+            '<option value="">Pilih jenjang</option>' + opt('JHS') + opt('SHS') + '</select></div>' +
+        '</div>';
+      }
+
+      async function openForm(m) {
+        var ok = await Admin.modal({
+          title: m ? 'Ubah anggota' : 'Tambah anggota', narrow: true,
+          submit: m ? 'Simpan perubahan' : 'Simpan anggota',
+          html: formHtml(m),
+          onSubmit: async function (data) {
+            if (m) {
+              data.id = m.id;
+              var upd = await API.post('updateMember', data);
+              upd.pinjaman_aktif = m.pinjaman_aktif;
+              members = members.map(function (x) { return x.id === upd.id ? upd : x; });
+            } else {
+              var nw = await API.post('createMember', data);
+              nw.pinjaman_aktif = 0;
+              members.push(nw);
+            }
+            members.sort(byName);
+          }
+        });
+        if (ok) { UI.toast(m ? 'Perubahan disimpan' : 'Anggota ditambahkan', 'success'); render(); }
+      }
+
+      async function askDelete(m) {
+        var ok = await Admin.confirm({
+          title: 'Hapus anggota?', submit: 'Hapus anggota', danger: true,
+          text: '<strong>' + UI.esc(m.nama) + '</strong> (NIS ' + UI.esc(m.nis) + ') akan dihapus dari daftar anggota. Riwayat peminjamannya tetap tersimpan.',
+          action: async function () {
+            await API.post('deleteMember', { id: m.id });
+            members = members.filter(function (x) { return x.id !== m.id; });
+          }
+        });
+        if (ok) { UI.toast('Anggota dihapus', 'success'); render(); }
+      }
+
+      // ----- Impor CSV -----
+      function parseCSV(text) {
+        text = text.replace(/^\uFEFF/, '');
+        var first = text.split(/\r?\n/)[0] || '';
+        var count = function (ch) { return first.split(ch).length; };
+        var delim = count(';') > count(',') ? ';' : (count('\t') > count(',') ? '\t' : ',');
+        var rows = [], row = [], cur = '', inQ = false;
+        for (var i = 0; i < text.length; i++) {
+          var c = text[i];
+          if (inQ) {
+            if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c;
+          } else if (c === '"') inQ = true;
+          else if (c === delim) { row.push(cur); cur = ''; }
+          else if (c === '\n' || c === '\r') {
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            row.push(cur); cur = ''; rows.push(row); row = [];
+          } else cur += c;
+        }
+        if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+        return rows.filter(function (r) { return r.some(function (x) { return String(x).trim() !== ''; }); });
+      }
+
+      function toObjects(rows) {
+        if (!rows.length) return [];
+        var head = rows[0].map(function (x) { return String(x).trim().toLowerCase(); });
+        var hasHead = head.indexOf('nis') > -1;
+        var idx = hasHead
+          ? { nis: head.indexOf('nis'), nama: head.indexOf('nama'), kelas: head.indexOf('kelas'), jenjang: head.indexOf('jenjang') }
+          : { nis: 0, nama: 1, kelas: 2, jenjang: 3 };
+        return rows.slice(hasHead ? 1 : 0).map(function (r) {
+          var get = function (k) { return idx[k] > -1 && r[idx[k]] !== undefined ? String(r[idx[k]]).trim() : ''; };
+          return { nis: get('nis'), nama: get('nama'), kelas: get('kelas'), jenjang: get('jenjang') };
+        });
+      }
+
+      async function openImport() {
+        var parsed = [];
+        var summary = null;
+        var ok = await Admin.modal({
+          title: 'Impor anggota dari CSV', submit: 'Impor sekarang',
+          html: '<div class="field"><label for="csvFile">File CSV</label>' +
+            '<input class="input" id="csvFile" type="file" accept=".csv,.txt,text/csv" style="padding-top:9px"></div>' +
+            '<p class="hint" style="margin-top:10px">Kolom: <b>nis, nama, kelas, jenjang</b> (JHS atau SHS). Pemisah koma atau titik koma. ' +
+            'Format kolom NIS sebagai teks agar angka 0 di depan tidak hilang. ' +
+            '<a class="link" id="tplLink" download="template-anggota.csv" href="#">Unduh template</a></p>' +
+            '<div class="preview-note" id="csvInfo" hidden></div>',
+          onOpen: function (dlg) {
+            var blob = new Blob(['\uFEFFnis,nama,kelas,jenjang\n2024001,Aisyah Putri,X-A,SHS\n2024002,Budi Santoso,IX-B,JHS\n'], { type: 'text/csv' });
+            dlg.querySelector('#tplLink').href = URL.createObjectURL(blob);
+            dlg.querySelector('#csvFile').addEventListener('change', async function () {
+              var info = dlg.querySelector('#csvInfo');
+              parsed = [];
+              if (!this.files[0]) { info.hidden = true; return; }
+              try {
+                parsed = toObjects(parseCSV(await this.files[0].text()));
+                info.textContent = parsed.length
+                  ? parsed.length + ' baris siap diimpor. Contoh: ' + (parsed[0].nama || '(nama kosong)') + ', NIS ' + (parsed[0].nis || '(kosong)') + '.'
+                  : 'File tidak berisi data anggota.';
+              } catch (e) { info.textContent = 'File tidak bisa dibaca.'; }
+              info.hidden = false;
+            });
+          },
+          onSubmit: async function () {
+            if (!parsed.length) throw new Error('Pilih file CSV yang berisi data anggota terlebih dulu.');
+            summary = { ditambahkan: 0, dilewati: 0, gagal: 0, pesan_error: [] };
+            for (var i = 0; i < parsed.length; i += 500) {
+              var r = await API.post('importMembers', { rows: parsed.slice(i, i + 500) });
+              summary.ditambahkan += r.ditambahkan; summary.dilewati += r.dilewati; summary.gagal += r.gagal;
+              summary.pesan_error = summary.pesan_error.concat(r.pesan_error || []);
+            }
+          }
+        });
+        if (!ok) return;
+        await loadAll();
+        UI.toast(summary.ditambahkan + ' anggota ditambahkan, ' + summary.dilewati + ' dilewati karena NIS sudah ada', 'success');
+        if (summary.gagal) {
+          Admin.modal({
+            title: summary.gagal + ' baris tidak bisa diimpor', narrow: true, submit: 'Mengerti', onSubmit: async function () {},
+            html: '<p>Periksa baris berikut di file CSV lalu impor ulang (baris yang sudah berhasil akan dilewati).</p><ul class="err-list">' +
+              summary.pesan_error.map(function (m) { return '<li>' + UI.esc(m) + '</li>'; }).join('') + '</ul>'
+          });
+        }
+      }
+
+      // ----- Event -----
+      $('addBtn').onclick = function () { openForm(); };
+      $('importBtn').onclick = openImport;
+      $('rows').addEventListener('click', function (ev) {
+        var btn = ev.target.closest('[data-act]');
+        if (!btn) return;
+        var m = members.filter(function (x) { return x.id === btn.getAttribute('data-id'); })[0];
+        if (!m) return;
+        if (btn.getAttribute('data-act') === 'edit') openForm(m); else askDelete(m);
+      });
+      $('q').addEventListener('input', UI.debounce(function () { q = $('q').value.trim(); page = 1; render(); }, 200));
+      $('jen').addEventListener('change', function () { jen = this.value; page = 1; render(); });
+      $('prev').onclick = function () { page--; render(); };
+      $('next').onclick = function () { page++; render(); };
+
+      async function loadAll() {
+        loading = true; render();
+        try {
+          members = await API.post('listMembers', {});
+          loading = false; render();
+        } catch (e) {
+          loading = false;
+          $('rows').innerHTML = ''; $('foot').hidden = true;
+          $('empty').innerHTML = UI.state({
+            icon: 'wifi-off', title: 'Daftar anggota belum bisa dimuat', text: e.message,
+            action: '<button class="btn btn-soft" id="retry" type="button">Coba lagi</button>'
+          });
+          $('retry').onclick = loadAll;
+        }
+      }
+      loadAll();
+    })();
+  </script>
+</body>
+</html>

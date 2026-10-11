@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pengaturan - Admin Perpustakaan</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="../assets/css/admin.css">
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js" defer></script>
+</head>
+<body>
+  <div class="admin">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="admin-main">
+      <header class="topbar" id="topbar"></header>
+      <main class="admin-content">
+        <div class="stack">
+          <form class="panel" id="rulesForm">
+            <h2 class="section-title">Aturan peminjaman</h2>
+            <p class="sub">Berlaku untuk peminjaman baru. Peminjaman yang sudah berjalan tidak berubah.</p>
+            <div class="form-grid" id="rulesFields">
+              <div class="skeleton full" style="height:44px"></div>
+              <div class="skeleton full" style="height:44px"></div>
+            </div>
+            <div class="form-error" id="rulesError" hidden></div>
+            <div class="form-actions"><button class="btn btn-primary" id="rulesBtn" type="submit" disabled>Simpan aturan</button></div>
+          </form>
+
+          <form class="panel" id="pwForm">
+            <h2 class="section-title">Ganti password</h2>
+            <p class="sub">Gunakan password yang sulit ditebak, minimal 6 karakter.</p>
+            <div class="form-grid">
+              <div class="field full"><label for="pw_old">Password lama</label>
+                <input class="input" id="pw_old" name="password_lama" type="password" autocomplete="current-password" required></div>
+              <div class="field"><label for="pw_new">Password baru</label>
+                <input class="input" id="pw_new" name="password_baru" type="password" autocomplete="new-password" minlength="6" required></div>
+              <div class="field"><label for="pw_conf">Ulangi password baru</label>
+                <input class="input" id="pw_conf" type="password" autocomplete="new-password" minlength="6" required></div>
+            </div>
+            <div class="form-error" id="pwError" hidden></div>
+            <div class="form-actions"><button class="btn btn-primary" id="pwBtn" type="submit">Ganti password</button></div>
+          </form>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+
+  <script src="../assets/js/config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/ui.js"></script>
+  <script src="../assets/js/admin.js"></script>
+  <script>
+    (function () {
+      if (!Admin.guard()) return;
+      Admin.mountShell('settings', 'Pengaturan');
+      var $ = function (id) { return document.getElementById(id); };
+
+      var FIELDS = [
+        { k: 'durasi_pinjam_default', label: 'Lama pinjam standar (hari)', min: 1, max: 90 },
+        { k: 'maks_buku_per_siswa', label: 'Maksimal buku per siswa', min: 1, max: 20 },
+        { k: 'maks_perpanjangan', label: 'Maksimal perpanjangan (kali)', min: 0, max: 10 },
+        { k: 'durasi_perpanjangan', label: 'Lama sekali perpanjangan (hari)', min: 1, max: 90 },
+        { k: 'hampir_jatuh_tempo_hari', label: 'Tandai "hampir jatuh tempo" (hari sebelumnya)', min: 0, max: 14 },
+        { k: 'denda_per_hari', label: 'Denda per hari terlambat (Rp)', min: 0, max: 1000000, hint: 'Isi 0 jika perpustakaan tidak memakai denda.' }
+      ];
+
+      function showError(id, msg) { $(id).textContent = msg; $(id).hidden = !msg; }
+
+      function renderRules(s) {
+        $('rulesFields').innerHTML = FIELDS.map(function (f) {
+          return '<div class="field"><label for="s_' + f.k + '">' + f.label + '</label>' +
+            '<input class="input" id="s_' + f.k + '" name="' + f.k + '" type="number" min="' + f.min + '" max="' + f.max + '" value="' + UI.esc(s[f.k]) + '" required>' +
+            (f.hint ? '<span class="hint">' + f.hint + '</span>' : '') + '</div>';
+        }).join('');
+        $('rulesBtn').disabled = false;
+      }
+
+      async function loadRules() {
+        try {
+          renderRules(await API.post('getSettings'));
+        } catch (e) {
+          $('rulesFields').innerHTML = UI.state({
+            icon: 'wifi-off', title: 'Pengaturan belum bisa dimuat', text: e.message,
+            action: '<button class="btn btn-soft" id="retry" type="button">Coba lagi</button>'
+          });
+          $('retry').onclick = loadRules;
+        }
+      }
+
+      $('rulesForm').addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        showError('rulesError', '');
+        var btn = $('rulesBtn'), label = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Menyimpan...';
+        try {
+          var data = Object.fromEntries(new FormData(this));
+          renderRules(await API.post('updateSettings', data));
+          UI.toast('Aturan peminjaman disimpan', 'success');
+        } catch (e) {
+          showError('rulesError', e.message);
+        } finally {
+          btn.disabled = false; btn.textContent = label;
+        }
+      });
+
+      $('pwForm').addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        showError('pwError', '');
+        if ($('pw_new').value !== $('pw_conf').value) { showError('pwError', 'Password baru dan ulangannya tidak sama.'); return; }
+        if ($('pw_new').value === $('pw_old').value) { showError('pwError', 'Password baru harus berbeda dari password lama.'); return; }
+        var btn = $('pwBtn'), label = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Menyimpan...';
+        try {
+          await API.post('changePassword', { password_lama: $('pw_old').value, password_baru: $('pw_new').value });
+          this.reset();
+          try { sessionStorage.removeItem('lib_default_pw'); } catch (e) { /* abaikan */ }
+          UI.toast('Password berhasil diganti', 'success');
+        } catch (e) {
+          showError('pwError', e.message);
+        } finally {
+          btn.disabled = false; btn.textContent = label;
+        }
+      });
+
+      loadRules();
+    })();
+  </script>
+</body>
+</html>

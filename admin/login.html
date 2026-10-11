@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Masuk Admin - Perpustakaan Sekolah</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="../assets/css/admin.css">
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js" defer></script>
+</head>
+<body>
+  <div class="login">
+    <section class="login-side" aria-hidden="true">
+      <h2 id="sideTitle">Kelola perpustakaan dengan lebih rapi</h2>
+      <p>Atur koleksi buku, catat peminjaman, dan pantau siapa saja yang belum mengembalikan buku.</p>
+    </section>
+
+    <section class="login-main">
+      <div class="login-card">
+        <div class="brand-line">
+          <span class="brand-mark"><iconify-icon icon="lucide:book-open" width="22" height="22" aria-hidden="true"></iconify-icon></span>
+          <span id="brandName">Perpustakaan</span>
+        </div>
+        <div>
+          <h1>Masuk sebagai admin</h1>
+          <p class="sub">Gunakan akun petugas perpustakaan.</p>
+        </div>
+
+        <div class="notice warn" id="expired" hidden>
+          <iconify-icon icon="lucide:clock" width="22" height="22" aria-hidden="true"></iconify-icon>
+          <span>Sesi berakhir. Silakan masuk lagi.</span>
+        </div>
+
+        <form id="loginForm">
+          <div class="field">
+            <label for="username">Username</label>
+            <input class="input" id="username" name="username" autocomplete="username" autocapitalize="none" required>
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="pw-wrap">
+              <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+              <button class="icon-btn" id="togglePw" type="button" aria-label="Tampilkan password">
+                <iconify-icon id="pwIcon" icon="lucide:eye" width="18" height="18" aria-hidden="true"></iconify-icon>
+              </button>
+            </div>
+          </div>
+          <div class="form-error" id="error" role="alert" hidden></div>
+          <button class="btn btn-primary btn-block" id="submitBtn" type="submit">Masuk</button>
+        </form>
+
+        <a class="link" href="../index.html">Kembali ke katalog siswa</a>
+      </div>
+    </section>
+  </div>
+
+  <script src="../assets/js/config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    (function () {
+      var $ = function (id) { return document.getElementById(id); };
+      if (API.getToken()) { location.replace('index.html'); return; }
+
+      $('brandName').textContent = CONFIG.LIB_NAME + ' ' + CONFIG.SCHOOL_NAME;
+      if (new URLSearchParams(location.search).get('expired')) $('expired').hidden = false;
+
+      $('togglePw').addEventListener('click', function () {
+        var show = $('password').type === 'password';
+        $('password').type = show ? 'text' : 'password';
+        $('pwIcon').setAttribute('icon', show ? 'lucide:eye-off' : 'lucide:eye');
+        this.setAttribute('aria-label', show ? 'Sembunyikan password' : 'Tampilkan password');
+      });
+
+      $('loginForm').addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        var btn = $('submitBtn');
+        $('error').hidden = true;
+        btn.disabled = true; btn.textContent = 'Memeriksa...';
+        try {
+          var pw = $('password').value;
+          var res = await API.post('login', { username: $('username').value.trim(), password: pw }, { auth: false });
+          API.setToken(res.token);
+          try {
+            sessionStorage.setItem('lib_user', res.nama || res.username);
+            // Penanda untuk mengingatkan admin agar mengganti password bawaan
+            if (pw === 'admin123') sessionStorage.setItem('lib_default_pw', '1');
+            else sessionStorage.removeItem('lib_default_pw');
+          } catch (e) { /* abaikan */ }
+          location.replace('index.html');
+        } catch (e) {
+          $('error').textContent = e.message;
+          $('error').hidden = false;
+          btn.disabled = false; btn.textContent = 'Masuk';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
