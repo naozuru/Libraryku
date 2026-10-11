@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cek Pinjaman - Perpustakaan Sekolah</title>
+  <meta name="description" content="Cek buku yang sedang kamu pinjam dan sisa waktunya.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js" defer></script>
+</head>
+<body>
+  <header class="site-header" id="site-header"></header>
+
+  <main>
+    <div class="wrap">
+      <div class="page-head">
+        <h1>Cek pinjaman</h1>
+        <p>Masukkan NIS untuk melihat buku yang sedang kamu pinjam, sisa waktunya, dan kapan harus dikembalikan.</p>
+      </div>
+
+      <form class="panel lookup" id="lookupForm">
+        <div class="field">
+          <label for="nis">NIS</label>
+          <div style="display:flex;gap:8px">
+            <input class="input" id="nis" name="nis" inputmode="numeric" autocomplete="off" placeholder="Contoh: 2024001" required>
+            <button class="btn btn-primary" id="submitBtn" type="submit">Cek pinjaman</button>
+          </div>
+        </div>
+      </form>
+
+      <div id="result" aria-live="polite" style="padding-bottom:56px"></div>
+    </div>
+  </main>
+
+  <footer class="site-footer" id="site-footer"></footer>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script>
+    (function () {
+      UI.mountChrome('status');
+      var $ = function (id) { return document.getElementById(id); };
+      var NIS_KEY = 'lib_last_nis';
+
+      // Isi otomatis dengan NIS terakhir (kenyamanan saja, tersimpan di browser ini)
+      var fromUrl = new URLSearchParams(location.search).get('nis');
+      try { $('nis').value = fromUrl || localStorage.getItem(NIS_KEY) || ''; } catch (e) { $('nis').value = fromUrl || ''; }
+
+      function loanCard(l) {
+        var total = Math.max(UI.diffDays(l.tgl_jatuh_tempo, l.tgl_pinjam), 1);
+        var pct = Math.min(100, Math.max(4, Math.round(((total - l.sisa_hari) / total) * 100)));
+        var cls = l.status_waktu === 'terlambat' ? 'bad' : (l.status_waktu === 'hampir' || l.status_waktu === 'hari_ini') ? 'warn' : '';
+        return '<article class="loan">' +
+          '<div>' + UI.cover(l, 'sm') + '</div>' +
+          '<div class="loan-body"><h3>' + UI.esc(l.judul) + '</h3>' +
+            '<p>Dipinjam ' + UI.fmtDate(l.tgl_pinjam) + ', kembalikan sebelum ' + UI.fmtDate(l.tgl_jatuh_tempo) + '</p>' +
+            '<div class="progress ' + cls + '" role="img" aria-label="Waktu pinjam terpakai ' + pct + ' persen"><i style="width:' + pct + '%"></i></div>' +
+          '</div>' +
+          '<div class="loan-side">' + UI.loanBadge(l) +
+            (l.denda > 0 ? '<span class="denda">Denda ' + UI.rupiah(l.denda) + '</span>' : '') + '</div>' +
+        '</article>';
+      }
+
+      function render(d) {
+        var late = d.pinjaman.filter(function (l) { return l.status_waktu === 'terlambat'; }).length;
+        var initial = (d.nama || '?').trim().charAt(0).toUpperCase();
+        var detail = [d.kelas ? 'Kelas ' + d.kelas : '', d.jenjang].filter(Boolean).join(', ');
+        var html = '<div class="who"><div class="avatar">' + UI.esc(initial) + '</div>' +
+          '<div><h2>' + UI.esc(d.nama) + '</h2><p>' + UI.esc(detail) + '</p></div></div>';
+
+        if (!d.pinjaman.length) {
+          html += UI.state({
+            icon: 'book-open', title: 'Tidak ada pinjaman aktif',
+            text: 'Kamu sedang tidak meminjam buku. Cari bacaan berikutnya di katalog.',
+            action: '<a class="btn btn-soft" href="index.html">Lihat katalog</a>'
+          }).replace('state span-all', 'state panel');
+        } else {
+          html += late
+            ? '<div class="notice bad">' + UI.icon('triangle-alert', 22) + '<span>' + late + ' buku sudah lewat jatuh tempo. Segera kembalikan ke perpustakaan.</span></div>'
+            : '<div class="notice ok">' + UI.icon('circle-check', 22) + '<span>Semua pinjamanmu masih dalam batas waktu.</span></div>';
+          html += '<div class="loans">' + d.pinjaman.map(loanCard).join('') + '</div>';
+        }
+        $('result').innerHTML = html;
+      }
+
+      async function check(nis) {
+        var btn = $('submitBtn');
+        btn.disabled = true; btn.textContent = 'Memeriksa...';
+        $('result').innerHTML = '<div class="loans"><div class="skeleton" style="height:84px"></div><div class="skeleton" style="height:84px"></div></div>';
+        try {
+          var d = await API.get('memberStatus', { nis: nis });
+          try { localStorage.setItem(NIS_KEY, nis); } catch (e) { /* abaikan */ }
+          render(d);
+        } catch (e) {
+          $('result').innerHTML = UI.state({
+            icon: 'user-x', title: 'Data tidak bisa ditampilkan', text: e.message
+          }).replace('state span-all', 'state panel');
+        } finally {
+          btn.disabled = false; btn.textContent = 'Cek pinjaman';
+        }
+      }
+
+      $('lookupForm').addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var nis = $('nis').value.trim();
+        if (nis) check(nis);
+      });
+      if (fromUrl) check(fromUrl.trim());
+    })();
+  </script>
+</body>
+</html>

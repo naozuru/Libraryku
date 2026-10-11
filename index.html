@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Katalog Buku - Perpustakaan Sekolah</title>
+  <meta name="description" content="Cari buku dan cek ketersediaannya di perpustakaan sekolah.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js" defer></script>
+</head>
+<body>
+  <header class="site-header" id="site-header"></header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-inner">
+        <div class="hero-copy">
+          <h1>Cari buku yang ingin kamu baca</h1>
+          <p class="lead">Lihat isi rak perpustakaan dan cek apakah bukunya sedang tersedia sebelum kamu datang.</p>
+          <form class="search" id="searchForm" role="search">
+            <iconify-icon icon="lucide:search" width="20" height="20" aria-hidden="true"></iconify-icon>
+            <input type="search" id="q" placeholder="Cari judul, penulis, atau ISBN" autocomplete="off" aria-label="Cari buku">
+            <button class="btn btn-primary" type="submit">Cari</button>
+          </form>
+          <p class="hero-stats" id="stats"></p>
+        </div>
+        <div class="shelf" id="shelf" hidden aria-label="Beberapa buku di rak"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap">
+        <div class="toolbar">
+          <div class="chips" id="chips" aria-label="Filter kategori"></div>
+          <button class="chip" id="onlyAvail" type="button" aria-pressed="false">Tersedia saja</button>
+        </div>
+        <p class="result-meta" id="count" aria-live="polite"></p>
+        <div class="grid" id="grid"></div>
+        <div class="more" id="more" hidden>
+          <button class="btn btn-outline" id="moreBtn" type="button">Tampilkan lebih banyak</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer" id="site-footer"></footer>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script>
+    (function () {
+      UI.mountChrome('katalog');
+
+      var $ = function (id) { return document.getElementById(id); };
+      var PAGE_SIZE = 15;
+      var state = { q: '', kategori: '', tersedia: false, page: 1, total: 0, shown: 0 };
+      var reqId = 0;
+      var shelfBuilt = false;
+
+      // Baca filter dari URL agar hasil pencarian bisa dibagikan
+      var params = new URLSearchParams(location.search);
+      state.q = params.get('q') || '';
+      state.kategori = params.get('kategori') || '';
+      state.tersedia = params.get('tersedia') === '1';
+      $('q').value = state.q;
+      $('onlyAvail').setAttribute('aria-pressed', String(state.tersedia));
+
+      function syncUrl() {
+        var p = new URLSearchParams();
+        if (state.q) p.set('q', state.q);
+        if (state.kategori) p.set('kategori', state.kategori);
+        if (state.tersedia) p.set('tersedia', '1');
+        var qs = p.toString();
+        history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+      }
+
+      function skeletons() {
+        var html = '';
+        for (var i = 0; i < 10; i++) {
+          html += '<div class="sk-card"><div class="skeleton sk-cover"></div>' +
+            '<div class="skeleton sk-line" style="width:85%"></div><div class="skeleton sk-line" style="width:55%"></div></div>';
+        }
+        return html;
+      }
+
+      function bookCard(b) {
+        return '<a class="book" href="book.html?id=' + encodeURIComponent(b.id) + '">' +
+          UI.cover(b) +
+          '<div class="book-info"><h3 class="book-title">' + UI.esc(b.judul) + '</h3>' +
+          '<p class="book-author">' + UI.esc(b.penulis || 'Penulis tidak diketahui') + '</p>' +
+          UI.availBadge(b) + '</div></a>';
+      }
+
+      function buildShelf(items) {
+        if (shelfBuilt || !items.length) return;
+        shelfBuilt = true;
+        $('shelf').innerHTML = items.slice(0, 9).map(function (b, i) { return UI.spine(b, i); }).join('');
+        $('shelf').hidden = false;
+      }
+
+      function updateCount() {
+        if (!state.total) { $('count').textContent = ''; return; }
+        $('count').textContent = 'Menampilkan ' + state.shown + ' dari ' + state.total + ' buku';
+      }
+
+      async function load(append) {
+        var id = ++reqId;
+        if (!append) {
+          state.page = 1;
+          $('grid').innerHTML = skeletons();
+          $('more').hidden = true;
+          $('count').textContent = 'Memuat buku...';
+        } else {
+          state.page++;
+          $('moreBtn').disabled = true;
+        }
+        try {
+          var data = await API.get('listBooks', {
+            q: state.q, kategori: state.kategori, tersedia: state.tersedia,
+            page: state.page, pageSize: PAGE_SIZE
+          });
+          if (id !== reqId) return;
+          state.total = data.total;
+          if (!append) { $('grid').innerHTML = ''; state.shown = 0; }
+          state.shown += data.items.length;
+
+          if (!data.items.length && !append) {
+            $('grid').innerHTML = UI.state({
+              icon: 'search-x', title: 'Buku tidak ditemukan',
+              text: 'Coba kata kunci lain, atau hapus filter yang sedang aktif.',
+              action: '<button class="btn btn-soft" id="resetBtn" type="button">Hapus filter</button>'
+            });
+            $('resetBtn').onclick = resetFilters;
+          } else {
+            $('grid').insertAdjacentHTML('beforeend', data.items.map(bookCard).join(''));
+          }
+          if (!state.q && !state.kategori && !state.tersedia && !append) buildShelf(data.items);
+          $('more').hidden = state.shown >= state.total;
+          $('moreBtn').disabled = false;
+          updateCount();
+        } catch (e) {
+          if (id !== reqId) return;
+          if (append) {
+            state.page--;
+            $('moreBtn').disabled = false;
+            UI.toast(e.message, 'error');
+            return;
+          }
+          $('count').textContent = '';
+          $('grid').innerHTML = UI.state({
+            icon: API.ready() ? 'wifi-off' : 'settings',
+            title: API.ready() ? 'Katalog belum bisa dimuat' : 'Backend belum disambungkan',
+            text: e.message,
+            action: API.ready() ? '<button class="btn btn-soft" id="retryBtn" type="button">Coba lagi</button>' : ''
+          });
+          if ($('retryBtn')) $('retryBtn').onclick = function () { load(false); };
+        }
+      }
+
+      function resetFilters() {
+        state.q = ''; state.kategori = ''; state.tersedia = false;
+        $('q').value = '';
+        $('onlyAvail').setAttribute('aria-pressed', 'false');
+        markChip();
+        syncUrl();
+        load(false);
+      }
+
+      // ----- Kategori & statistik -----
+      var categories = [];
+      function renderChips() {
+        var html = '<button class="chip" type="button" data-k="">Semua</button>' +
+          categories.map(function (c) {
+            return '<button class="chip" type="button" data-k="' + UI.esc(c.nama) + '">' + UI.esc(c.nama) + ' <em>' + c.jumlah + '</em></button>';
+          }).join('');
+        $('chips').innerHTML = html;
+        markChip();
+      }
+      function markChip() {
+        Array.prototype.forEach.call($('chips').querySelectorAll('.chip'), function (el) {
+          el.classList.toggle('active', el.getAttribute('data-k') === state.kategori);
+        });
+      }
+
+      async function loadMeta() {
+        try {
+          var res = await Promise.all([API.get('listCategories', {}, 300), API.get('publicStats', {}, 300)]);
+          categories = res[0];
+          renderChips();
+          var s = res[1];
+          $('stats').textContent = 'Ada ' + s.total_judul + ' judul di ' + s.total_kategori +
+            ' kategori, ' + s.judul_tersedia + ' di antaranya siap dipinjam.';
+        } catch (e) { /* kegagalan ditampilkan oleh daftar buku */ }
+      }
+
+      // ----- Event -----
+      $('chips').addEventListener('click', function (ev) {
+        var btn = ev.target.closest('[data-k]');
+        if (!btn) return;
+        state.kategori = btn.getAttribute('data-k');
+        markChip(); syncUrl(); load(false);
+      });
+      $('onlyAvail').addEventListener('click', function () {
+        state.tersedia = !state.tersedia;
+        this.setAttribute('aria-pressed', String(state.tersedia));
+        syncUrl(); load(false);
+      });
+      var applySearch = function () {
+        var v = $('q').value.trim();
+        if (v === state.q) return;
+        state.q = v; syncUrl(); load(false);
+      };
+      $('searchForm').addEventListener('submit', function (ev) { ev.preventDefault(); applySearch(); });
+      $('q').addEventListener('input', UI.debounce(applySearch, 450));
+      $('moreBtn').addEventListener('click', function () { load(true); });
+
+      loadMeta();
+      load(false);
+    })();
+  </script>
+</body>
+</html>
